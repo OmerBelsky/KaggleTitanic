@@ -3,9 +3,14 @@ import numpy as np
 import re
 import Point as p
 import sys
+import argparse as argp
 from sklearn import svm
 
+parser = argp.ArgumentParser()
+parser.add_argument('-m', default='k', dest='model', action='store_const', const='m')
+
 knn = KNN.KNN(275)
+
 agemean = 0
 agestd = 0
 maxAge = 0
@@ -18,8 +23,10 @@ minSibSp = sys.maxsize
 minParch = sys.maxsize
 minAge = sys.maxsize
 minFare = float('inf')
-SVMMat = []
-SVMTargets = []
+
+testSet = []
+trainSet = []
+trainTargets = []
 
 def createDistrib():
     global faremean
@@ -37,27 +44,25 @@ def createDistrib():
     fares = []
     ages = []
     with open("./train.csv", 'r')  as reader:
+        next(reader)
         for line in reader:
             line = re.split(",(?!\s)", line)
+            age, sibsp, parch, fare = [line[i] for i in [5, 6, 7, 9]]
             try:
-                fares.append(int(float(line[9])))
-                ages.append(int(float(line[5])))
-                if maxAge < int(float(line[5])):
-                    maxAge = int(float(line[5]))
-                if minAge > int(float(line[5])):
-                    minAge = int(float(line[5]))
-                if maxFare < float(line[9]):
-                    maxFare = float(line[9])
-                if maxSibSp < int(line[6]):
-                    maxSibSp = int(line[6])
-                if maxParch < int(line[7]):
-                    maxParch = int(line[7])
-                if minFare > float(line[9]):
-                    minFare = float(line[9])
-                if minSibSp > int(line[6]):
-                    minSibSp = int(line[6])
-                if minParch > int(line[7]):
-                    minParch = int(line[7])
+                age = int(float(age))
+                fare = float(fare)
+                sibsp = int(sibsp)
+                parch = int(parch)
+                fares.append(fare)
+                ages.append(age)
+                maxAge = max(maxAge, age)
+                minAge = min(minAge, age)
+                maxFare = max(maxFare, fare)
+                minFare = min(minFare, fare)
+                maxSibSp = max(maxSibSp, sibsp)
+                minSibSp = min(minSibSp, sibsp)
+                maxParch = max(maxParch, parch)
+                minParch = min(minParch, parch)
             except Exception:
                 pass #age was null
     agemean = np.mean(fares)
@@ -65,134 +70,73 @@ def createDistrib():
     agemean = np.mean(ages)
     agestd = np.std(ages)
 
-def loadDataKNN():
-    with open("./train.csv", 'r') as reader:
-        readHead = False
-        for line in reader:
-            if not readHead:
-                readHead = True
-                continue
-            line = re.split(",(?!\s)", line)
-            predFare = np.random.normal(faremean, farestd)
-            predAge = int(np.random.normal(agemean, agestd))
-            if predFare < minFare:
-                predFare = minFare
-            if predFare > maxFare:
-                predFare = maxFare
-            if predAge < minAge:
-                predAge = minAge
-            if predAge > maxAge:
-                predAge = maxAge
-            features = [(float(line[2]) - 1) / 2, 0 if line[4] == "male" else 1,
-                        int((predAge - minAge) / (maxAge - minAge)) if line[5] == '' else int(
-                            int(float(line[5]) - minAge) / (maxAge - minAge)),
-                        (float(line[6]) - minSibSp) / (maxSibSp - minSibSp),
-                        (float(line[7]) - minParch) / (maxParch - minParch),
-                        (predFare - minFare) / (maxFare - minFare) if line[9] == '' else (float(line[9]) - minFare) / (
-                        maxFare - minFare)]
-            knn.addPoint(p.Point(features, line[1]))
-
-def learnStuffKNN():
+def predictWithKNN():
+    for i in range(len(trainSet)):
+        knn.addPoint(p.Point(trainSet[i], trainTargets[i]))
     classified = []
-    with open("./test.csv", 'r') as reader:
-        readHead = False
-        for line in reader:
-            if not readHead:
-                readHead = True
-                continue
-            line = re.split(",(?!\s)", line)
-            predFare = np.random.normal(faremean, farestd)
-            predAge = int(np.random.normal(agemean, agestd))
-            if predFare < minFare:
-                predFare = minFare
-            if predFare > maxFare:
-                predFare = maxFare
-            if predAge < minAge:
-                predAge = minAge
-            if predAge > maxAge:
-                predAge = maxAge
-            features = [(float(line[1]) - 1) / 2, 0 if line[3] == "male" else 1,
-                        int((predAge - minAge) / (maxAge - minAge)) if line[4] == '' else int(
-                            int(float(line[4]) - minAge) / (maxAge - minAge)),
-                        (float(line[5]) - minSibSp) / (maxSibSp - minSibSp),
-                        (float(line[6]) - minParch) / (maxParch - minParch),
-                        (predFare - minFare) / (maxFare - minFare) if line[8] == '' else (float(line[8]) - minFare) / (
-                        maxFare - minFare)]
-            point = p.Point(features)
-            classified.append((line[0], knn.classify(point)))
+    for featureSet in testSet:
+        classified.append(knn.classify(p.Point(featureSet)))
     with open("knn.csv", 'a') as writer:
         writer.write("PassengerId,Survived")
         for i in range(len(classified)):
-            writer.write("\n{},{}".format(classified[i][0], classified[i][1]))
+            writer.write("\n{},{}".format(892 + i, classified[i]))
 
-def loadDataSVM():
-    global SVMMat
-    global SVMTargets
-    with open("./train.csv", 'r') as reader:
-        readHead = False
-        for line in reader:
-            if not readHead:
-                readHead = True
-                continue
-            line = re.split(",(?!\s)", line)
-            predFare = np.random.normal(faremean, farestd)
-            predAge = int(np.random.normal(agemean, agestd))
-            if predFare < minFare:
-                predFare = minFare
-            if predFare > maxFare:
-                predFare = maxFare
-            if predAge < minAge:
-                predAge = minAge
-            if predAge > maxAge:
-                predAge = maxAge
-            features = [(float(line[2]) - 1) / 2, 0 if line[4] == "male" else 1,
-                        int((predAge - minAge) / (maxAge - minAge)) if line[5] == '' else int(
-                            int(float(line[5]) - minAge) / (maxAge - minAge)),
-                        (float(line[6]) - minSibSp) / (maxSibSp - minSibSp),
-                        (float(line[7]) - minParch) / (maxParch - minParch),
-                        (predFare - minFare) / (maxFare - minFare) if line[9] == '' else (float(line[9]) - minFare) / (
-                        maxFare - minFare)]
-            SVMMat.append(features)
-            SVMTargets.append(line[1])
-
-def learnStuffSVM():
+def predictWithSVM():
     clf = svm.SVC(kernel='rbf', C=5)
-    clf.fit(SVMMat, SVMTargets)
-    toBeClassified = []
-    with open("./test.csv", 'r') as reader:
-        readHead = False
-        for line in reader:
-            if not readHead:
-                readHead = True
-                continue
-            line = re.split(",(?!\s)", line)
-            predFare = np.random.normal(faremean, farestd)
-            predAge = int(np.random.normal(agemean, agestd))
-            if predFare < minFare:
-                predFare = minFare
-            if predFare > maxFare:
-                predFare = maxFare
-            if predAge < minAge:
-                predAge = minAge
-            if predAge > maxAge:
-                predAge = maxAge
-            features = [(float(line[1]) - 1) / 2, 0 if line[3] == "male" else 1,
-                        int((predAge - minAge) / (maxAge - minAge)) if line[4] == '' else int(
-                            int(float(line[4]) - minAge) / (maxAge - minAge)),
-                        (float(line[5]) - minSibSp) / (maxSibSp - minSibSp),
-                        (float(line[6]) - minParch) / (maxParch - minParch),
-                        (predFare - minFare) / (maxFare - minFare) if line[8] == '' else (float(line[8]) - minFare) / (
-                        maxFare - minFare)]
-            toBeClassified.append(features)
-    predictions = clf.predict(toBeClassified)
+    clf.fit(trainSet, trainTargets)
+    predictions = clf.predict(testSet)
     with open("svm.csv", 'a') as writer:
         writer.write("PassengerId,Survived")
         for i in range(len(predictions)):
             writer.write("\n{},{}".format(892 + i, predictions[i]))
 
+def loadData():
+    global testSet
+    global trainSet
+    with open("./test.csv", 'r') as reader:
+        next(reader)
+        for line in reader:
+            line = re.split(",(?!\s)", line)
+            pClass, gender, age, sibsp, parch, fare = [line[i] for i in [1, 3, 4, 5, 6, 8]]
+            predFare = np.random.normal(faremean, farestd)
+            predAge = int(np.random.normal(agemean, agestd))
+            predFare = min(predFare, minFare)
+            predFare = max(predFare, maxFare)
+            predAge = min(predAge, minAge)
+            predAge = max(predAge, maxAge)
+            features = [(float(pClass) - 1) / 2, 0 if gender == "male" else 1,
+                        int((predAge - minAge) / (maxAge - minAge)) if age == '' else int(
+                            int(float(age) - minAge) / (maxAge - minAge)),
+                        (float(sibsp) - minSibSp) / (maxSibSp - minSibSp),
+                        (float(parch) - minParch) / (maxParch - minParch),
+                        (predFare - minFare) / (maxFare - minFare) if fare == '' else (float(fare) - minFare) / (
+                            maxFare - minFare)]
+            testSet.append(features)
+    with open("./train.csv", 'r') as reader:
+        next(reader)
+        for line in reader:
+            line = re.split(",(?!\s)", line)
+            survived, pClass, gender, age, sibsp, parch, fare = [line[i] for i in [1, 2, 4, 5, 6, 7, 9]]
+            predFare = np.random.normal(faremean, farestd)
+            predAge = int(np.random.normal(agemean, agestd))
+            predFare = min(predFare, minFare)
+            predFare = max(predFare, maxFare)
+            predAge = min(predAge, minAge)
+            predAge = max(predAge, maxAge)
+            features = [(float(pClass) - 1) / 2, 0 if gender == "male" else 1,
+                        int((predAge - minAge) / (maxAge - minAge)) if age == '' else int(
+                            int(float(age) - minAge) / (maxAge - minAge)),
+                        (float(sibsp) - minSibSp) / (maxSibSp - minSibSp),
+                        (float(parch) - minParch) / (maxParch - minParch),
+                        (predFare - minFare) / (maxFare - minFare) if fare == '' else (float(fare) - minFare) / (
+                        maxFare - minFare)]
+            trainSet.append(features)
+            trainTargets.append(survived)
+
 createDistrib()
-loadDataKNN()
-learnStuffKNN()
-#loadDataSVM()
-#learnStuffSVM()
+loadData()
+if parser.parse_args().model == 'k':
+    predictWithKNN()
+else:
+    predictWithSVM()
 
